@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+    environment:
+      - CAMERA_IP=${CAMERA_IP}
+      - USER=${USER}
+      - PASSWORD=${PASSWORD}
+      - PORT=${PORT}
+      - TOKEN=${TOKEN}
+    restart: unless-stopped
+    networks:
+      - bot-network
+
+networks:
+  bot-network:
+    driver: bridge

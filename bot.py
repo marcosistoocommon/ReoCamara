@@ -1,4 +1,3 @@
-import logging
 import asyncio
 import requests
 import time
@@ -21,8 +20,8 @@ BOT_TOKEN = os.getenv("TOKEN")
 
 # Rutas de movimiento de cámara (presets)
 ROUTES = {
-    "getSalseo": [1, 0],
-    "getNevera": [2, 0],
+    "getSalseo": [0, 1, 0],
+    "getNevera": [0, 2, 0],
     # Añadir más rutas aquí
 }
 
@@ -34,11 +33,7 @@ COMMANDS_DESCRIPTIONS = {
     "getVideo": "Obtiene un video del punto inicial de la cámara.",
 }
 
-MESSAGE_LIFETIME = 15
-
-# Configuración del logger
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
-logger = logging.getLogger(__name__)
+MESSAGE_LIFETIME = 30  # Tiempo en segundos para eliminar mensajes
 
 # Variables globales para token de la cámara
 cached_token = None
@@ -58,10 +53,8 @@ def get_token():
             cached_token = response.json()[0]["value"]["Token"]["name"]
             token_expiry = time.time() + 60 * 5  # Token válido por 5 minutos
             return cached_token
-        else:
-            logger.error("Error al obtener el token.")
-    except requests.RequestException as e:
-        logger.error(f"Error al obtener el token: {e}")
+    except requests.RequestException:
+        pass
 
     return None
 
@@ -71,15 +64,12 @@ def move_camera(token, preset_id, speed=1):
     payload = [{"cmd": "PtzCtrl", "param": {"channel": 0, "op": "ToPos", "id": preset_id, "speed": speed}}]
     try:
         response = requests.post(url, json=payload, verify=False)
-        if response.status_code != 200:
-            logger.error(f"Error moviendo la cámara al preset {preset_id}: {response.text}")
-    except requests.RequestException as e:
-        logger.error(f"Error al mover la cámara: {e}")
+    except requests.RequestException:
+        pass
 
 async def record_video(output_file, duration):
     """Graba un video desde la cámara durante un tiempo determinado."""
     try:
-        logger.info("Iniciando grabación...")
         command = [
             "ffmpeg", "-y", "-i", RTSP_URL,
             "-t", str(duration), "-vf", "scale=640:360",
@@ -87,15 +77,13 @@ async def record_video(output_file, duration):
         ]
         process = await asyncio.create_subprocess_exec(*command)
         await process.wait()
-        logger.info(f"Video guardado en {output_file}")
-    except Exception as e:
-        logger.error(f"Error durante la grabación: {e}")
+    except Exception:
+        pass
 
 async def execute_route(route, output_file):
     """Ejecuta una ruta de movimiento de la cámara y graba el video."""
     token = get_token()
     if not token:
-        logger.error("No se pudo obtener el token, no se puede continuar.")
         return
 
     duration_per_movement = 5
@@ -105,12 +93,10 @@ async def execute_route(route, output_file):
     record_task = asyncio.create_task(record_video(output_file, total_duration))
 
     for preset in route:
-        logger.info(f"Moviendo la cámara al preset {preset}...")
         move_camera(token, preset)
         await asyncio.sleep(duration_per_movement)
 
     await record_task  # Espera a que la grabación finalice
-    logger.info("Ruta completada y grabación finalizada.")
 
 async def send_video(chat_id, output_file, context, delete_after=MESSAGE_LIFETIME):
     """Envía un video al chat y lo elimina después de un tiempo."""
@@ -122,11 +108,9 @@ async def send_video(chat_id, output_file, context, delete_after=MESSAGE_LIFETIM
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=video_message.message_id)
             await context.bot.delete_message(chat_id=chat_id, message_id=info_message.message_id)
-            logger.info(f"Mensajes eliminados después de {delete_after} segundos.")
-        except Exception as e:
-            logger.error(f"Error al eliminar los mensajes: {e}")
+        except Exception:
+            pass
     else:
-        logger.error("El archivo de video no existe o está vacío.")
         await context.bot.send_message(chat_id=chat_id, text="No se pudo grabar el video.")
 
 async def start_route(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -165,11 +149,9 @@ async def send_image(chat_id, image_file, context, delete_after=MESSAGE_LIFETIME
             await context.bot.delete_message(chat_id=chat_id, message_id=image_message.message_id)
             await context.bot.delete_message(chat_id=chat_id, message_id=info_message.message_id)
             os.remove(image_file)
-            logger.info(f"Imagen y mensajes eliminados después de {delete_after} segundos.")
-        except Exception as e:
-            logger.error(f"Error al eliminar la imagen o mensajes: {e}")
+        except Exception:
+            pass
     else:
-        logger.error("El archivo de imagen no existe o está vacío.")
         await context.bot.send_message(chat_id=chat_id, text="No se pudo obtener la imagen de la cámara.")
 
 async def get_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -187,8 +169,7 @@ async def get_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response.raise_for_status()
         with open(image_file, 'wb') as f:
             f.write(response.content)
-    except requests.RequestException as e:
-        logger.error(f"Error al obtener la imagen: {e}")
+    except requests.RequestException:
         await update.message.reply_text("Error al obtener la imagen de la cámara.")
         return
 
@@ -202,22 +183,17 @@ async def get_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         # Llama a record_video para grabar el video
-        logger.info("Iniciando grabación de video...")
         await record_video(output_file, duration)
-        logger.info(f"Video guardado en {output_file}")
 
         # Verifica si el archivo de video se creó correctamente
         if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
-            logger.error("El archivo de video no se generó correctamente.")
             await update.message.reply_text("No se pudo grabar el video.")
             return
 
         # Usa send_video para enviar el archivo al chat y programar su eliminación
         await send_video(update.effective_chat.id, output_file, context, delete_after=MESSAGE_LIFETIME)
-    except Exception as e:
-        logger.error(f"Error al grabar el video: {e}")
+    except Exception:
         await update.message.reply_text("Ocurrió un error al grabar el video.")
-
 
 def main():
     """Función principal para iniciar el bot."""
@@ -228,7 +204,6 @@ def main():
     application.add_handler(CommandHandler("getVideo", get_video))
     application.add_handler(MessageHandler(filters.COMMAND, unknown_command))
 
-    logger.info("Bot iniciado.")
     application.run_polling()
 
 if __name__ == "__main__":
