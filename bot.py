@@ -12,7 +12,7 @@ load_dotenv()
 
 # Configuración de la cámara y bot
 CAMERA_IP = os.getenv("CAMERA_IP")
-USER = os.getenv("USER")
+USER = os.getenv("USERBOT")
 PASSWORD = os.getenv("PASSWORD")
 PORT = os.getenv("PORT")
 RTSP_URL = f"rtsp://{USER}:{PASSWORD}@{CAMERA_IP}:{PORT}/h264Preview_01_main"
